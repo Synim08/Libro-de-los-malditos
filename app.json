@@ -29,6 +29,12 @@
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6733ce51-d026-4f37-9659-37a83160a854"
+      }
+    },
+    "owner": "synim"
   }
 }
