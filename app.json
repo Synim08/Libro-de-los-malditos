@@ -16,6 +16,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.synim08.librodelosmalditos",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#0B0807",
         "foregroundImage": "./assets/app-icon.png"
