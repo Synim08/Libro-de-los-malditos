@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, serifFont } from '../theme';
 import { TabKey } from '../types';
@@ -29,8 +30,10 @@ export function BottomNavigation({
   activeTab,
   onChange,
 }: BottomNavigationProps) {
+  const { bottom } = useSafeAreaInsets();
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: Math.max(bottom, 7) }]}>
       {tabs.map((tab) => {
         const active = activeTab === tab.key;
 
@@ -70,7 +73,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingTop: 5,
     paddingRight: 5,
-    paddingBottom: Platform.OS === 'ios' ? 18 : 7,
     paddingLeft: 5,
     backgroundColor: 'rgba(13, 9, 7, 0.97)',
   },

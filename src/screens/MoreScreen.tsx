@@ -93,7 +93,7 @@ export function MoreScreen({
         <Text style={styles.aboutCopy}>
           Una lista de tareas de fantasía oscura creada con React Native y Expo.
         </Text>
-        <Text style={styles.version}>VERSIÓN 1.0 · EXPO SDK 54</Text>
+        <Text style={styles.version}>VERSIÓN 1.0.1 · EXPO SDK 54</Text>
       </OrnatePanel>
     </ScrollView>
   );

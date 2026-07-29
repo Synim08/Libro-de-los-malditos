@@ -15,6 +15,10 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import {
+  initialWindowMetrics,
+  SafeAreaProvider,
+} from 'react-native-safe-area-context';
 
 import { AppHeader } from './src/components/AppHeader';
 import { BottomNavigation } from './src/components/BottomNavigation';
@@ -31,6 +35,14 @@ const makeTaskId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 
 export default function App() {
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
   const [activeTab, setActiveTab] = useState<TabKey>('oaths');
   const [hydrated, setHydrated] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
