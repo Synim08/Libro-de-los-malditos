@@ -1,0 +1,322 @@
+diff --git a/node_modules/expo-notifications/android/src/main/AndroidManifest.xml b/node_modules/expo-notifications/android/src/main/AndroidManifest.xml
+index 777403d..684e24e 100644
+--- a/node_modules/expo-notifications/android/src/main/AndroidManifest.xml
++++ b/node_modules/expo-notifications/android/src/main/AndroidManifest.xml
+@@ -1,6 +1,7 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
++  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+ 
+   <application>
+     <service
+@@ -27,6 +28,14 @@
+       </intent-filter>
+     </receiver>
+ 
++    <service
++      android:name=".service.ExactNotificationTriggerService"
++      android:enabled="true"
++      android:exported="false"
++      android:foregroundServiceType="shortService"
++      android:process=":scheduled_notifications">
++    </service>
++
+     <activity android:name=".service.NotificationForwarderActivity"
+       android:theme="@android:style/Theme.Translucent.NoTitleBar"
+       android:exported="false"
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/ExactNotificationTriggerService.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/ExactNotificationTriggerService.kt
+new file mode 100644
+index 0000000..7f3b54a
+--- /dev/null
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/ExactNotificationTriggerService.kt
+@@ -0,0 +1,124 @@
++package expo.modules.notifications.service
++
++import android.app.Service
++import android.app.Notification
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.content.Context
++import android.content.Intent
++import android.content.pm.ServiceInfo
++import android.net.Uri
++import android.os.Build
++import android.os.IBinder
++import android.os.Process
++import android.util.Log
++import expo.modules.notifications.service.delegates.ExpoSchedulingDelegate
++import java.util.concurrent.atomic.AtomicInteger
++import kotlin.concurrent.thread
++
++/**
++ * Handles exact scheduled notifications in a short-lived, isolated process.
++ *
++ * Using a service PendingIntent avoids vendor broadcast queues that can retain an alarm
++ * receiver until the screen wakes. AlarmManager temporarily allowlists the application
++ * while delivering this PendingIntent, so the service can finish the notification work
++ * immediately and then terminate its process.
++ */
++class ExactNotificationTriggerService : Service() {
++  override fun onBind(intent: Intent?): IBinder? = null
++
++  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++    val identifier = intent?.getStringExtra(IDENTIFIER_EXTRA)
++    val data = intent?.data
++
++    if (identifier == null || data == null || intent.action != ACTION || !isValidTriggerUri(data, identifier)) {
++      Log.w(TAG, "Ignoring an invalid exact-notification trigger")
++      stopSelf(startId)
++      return START_NOT_STICKY
++    }
++
++    startDeliveryForeground()
++    activeWork.incrementAndGet()
++    Log.i(TAG, "Received exact notification trigger $identifier")
++    thread {
++      try {
++        ExpoSchedulingDelegate(applicationContext).triggerNotification(identifier)
++        Log.i(TAG, "Finished exact notification trigger $identifier")
++      } catch (exception: Exception) {
++        Log.e(TAG, "Could not trigger exact notification $identifier", exception)
++      } finally {
++        stopForeground(STOP_FOREGROUND_REMOVE)
++        stopSelfResult(startId)
++        if (activeWork.decrementAndGet() == 0) {
++          // Avoid leaving a cached process for vendor ROMs to freeze between alarms.
++          Thread.sleep(250)
++          if (activeWork.get() == 0) {
++            Process.killProcess(Process.myPid())
++          }
++        }
++      }
++    }
++    return START_NOT_STICKY
++  }
++
++  private fun startDeliveryForeground() {
++    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++      manager.createNotificationChannel(
++        NotificationChannel(
++          DELIVERY_CHANNEL_ID,
++          "Entrega de recordatorios",
++          NotificationManager.IMPORTANCE_LOW
++        ).apply {
++          description = "Mantiene activo el aviso solo mientras se entrega"
++          setShowBadge(false)
++        }
++      )
++    }
++
++    val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++      Notification.Builder(this, DELIVERY_CHANNEL_ID)
++    } else {
++      @Suppress("DEPRECATION")
++      Notification.Builder(this)
++    }
++      .setSmallIcon(applicationInfo.icon)
++      .setContentTitle("Libro de los Malditos")
++      .setContentText("Preparando recordatorio…")
++      .setCategory(Notification.CATEGORY_SERVICE)
++      .setOngoing(true)
++      .setShowWhen(false)
++      .build()
++
++    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
++      startForeground(
++        DELIVERY_NOTIFICATION_ID,
++        notification,
++        ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
++      )
++    } else {
++      startForeground(DELIVERY_NOTIFICATION_ID, notification)
++    }
++  }
++
++  companion object {
++    private const val TAG = "expo-notifications"
++    private const val ACTION = "expo.modules.notifications.EXACT_NOTIFICATION_TRIGGER"
++    private const val IDENTIFIER_EXTRA = "identifier"
++    private const val DELIVERY_CHANNEL_ID = "expo_scheduled_notification_delivery"
++    private const val DELIVERY_NOTIFICATION_ID = 731947
++    private val activeWork = AtomicInteger(0)
++
++    fun createIntent(context: Context, identifier: String): Intent =
++      Intent(context, ExactNotificationTriggerService::class.java).apply {
++        action = ACTION
++        data = Uri.parse("expo-notifications://notifications/scheduled/$identifier/trigger")
++        putExtra(IDENTIFIER_EXTRA, identifier)
++      }
++
++    private fun isValidTriggerUri(uri: Uri, identifier: String): Boolean =
++      uri.scheme == "expo-notifications" &&
++        uri.host == "notifications" &&
++        uri.pathSegments == listOf("scheduled", identifier, "trigger")
++  }
++}
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
+index ed4c7b1..9b0b786 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
+@@ -403,22 +403,33 @@ open class NotificationsService : BroadcastReceiver() {
+      * @return [PendingIntent] triggering [NotificationsService], triggering notification of given ID.
+      */
+     fun createNotificationTrigger(context: Context, identifier: String): PendingIntent {
++      val intent = ExactNotificationTriggerService.createIntent(context, identifier)
++
++      return PendingIntent.getForegroundService(
++        context,
++        ExactNotificationTriggerService::class.java.hashCode(),
++        intent,
++        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
++      )
++    }
++
++    /**
++     * Recreates the trigger PendingIntent used by expo-notifications before the exact-alarm
++     * receiver was introduced. It is kept only so application upgrades can cancel alarms
++     * that were registered by an older APK.
++     */
++    fun createLegacyNotificationTrigger(context: Context, identifier: String): PendingIntent {
+       val intent = Intent(
+         NOTIFICATION_EVENT_ACTION,
+-        getUriBuilder()
+-          .appendPath("scheduled")
+-          .appendPath(identifier)
+-          .appendPath("trigger")
+-          .build()
+-      ).also { intent ->
+-        findDesignatedBroadcastReceiver(context, intent)?.let {
+-          intent.component = ComponentName(it.packageName, it.name)
++        getUriBuilderForIdentifier(identifier).appendPath("trigger").build()
++      ).apply {
++        putExtra(EVENT_TYPE_KEY, TRIGGER_TYPE)
++        putExtra(IDENTIFIER_KEY, identifier)
++        findDesignatedBroadcastReceiver(context, this)?.let {
++          component = ComponentName(it.packageName, it.name)
+         }
+-        intent.putExtra(EVENT_TYPE_KEY, TRIGGER_TYPE)
+-        intent.putExtra(IDENTIFIER_KEY, identifier)
+       }
+ 
+-      // We're defaulting to the behaviour prior API 31 (mutable) even though Android recommends immutability
+       val mutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+       return PendingIntent.getBroadcast(
+         context,
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoSchedulingDelegate.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoSchedulingDelegate.kt
+index eddd142..a6ba2b7 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoSchedulingDelegate.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoSchedulingDelegate.kt
+@@ -5,7 +5,6 @@ import android.app.PendingIntent
+ import android.content.Context
+ import android.os.Build
+ import android.util.Log
+-import androidx.core.app.AlarmManagerCompat
+ import expo.modules.notifications.notifications.interfaces.SchedulableNotificationTrigger
+ import expo.modules.notifications.notifications.model.Notification
+ import expo.modules.notifications.notifications.model.NotificationRequest
+@@ -64,6 +63,7 @@ class ExpoSchedulingDelegate(protected val context: Context) : SchedulingDelegat
+         NotificationsService.removeScheduledNotification(context, request.identifier)
+       } else {
+         store.saveNotificationRequest(request)
++        alarmManager.cancel(NotificationsService.createLegacyNotificationTrigger(context, request.identifier))
+         setupAlarm(nextTriggerDate.time, NotificationsService.createNotificationTrigger(context, request.identifier))
+       }
+     }
+@@ -72,8 +72,20 @@ class ExpoSchedulingDelegate(protected val context: Context) : SchedulingDelegat
+   override fun triggerNotification(identifier: String) {
+     try {
+       val notificationRequest: NotificationRequest = store.getNotificationRequest(identifier)!!
+-      NotificationsService.receive(context, Notification(notificationRequest))
+-      NotificationsService.schedule(context, notificationRequest)
++      val notification = Notification(notificationRequest)
++      val handlingDelegate = ExpoHandlingDelegate(context)
++
++      // Some vendor ROMs drop the internal broadcast hops used by NotificationsService
++      // while the application is sleeping. Present background alarms directly from the
++      // exact-alarm receiver, while preserving the JavaScript handler in foreground.
++      if (handlingDelegate.isAppInForeground()) {
++        handlingDelegate.handleNotification(notification)
++      } else {
++        ExpoPresentationDelegate(context).presentNotification(notification, null)
++      }
++
++      // Re-arm recurring requests (or remove completed one-shot requests) synchronously.
++      scheduleNotification(notificationRequest)
+     } catch (e: ClassNotFoundException) {
+       Log.e("expo-notifications", "An exception occurred while triggering notification " + identifier + ", removing. " + e.message)
+       e.printStackTrace()
+@@ -92,6 +104,7 @@ class ExpoSchedulingDelegate(protected val context: Context) : SchedulingDelegat
+   override fun removeScheduledNotifications(identifiers: Collection<String>) {
+     identifiers.forEach {
+       alarmManager.cancel(NotificationsService.createNotificationTrigger(context, it))
++      alarmManager.cancel(NotificationsService.createLegacyNotificationTrigger(context, it))
+       store.removeNotificationRequest(it)
+     }
+   }
+@@ -99,24 +112,19 @@ class ExpoSchedulingDelegate(protected val context: Context) : SchedulingDelegat
+   override fun removeAllScheduledNotifications() {
+     store.removeAllNotificationRequests().forEach {
+       alarmManager.cancel(NotificationsService.createNotificationTrigger(context, it))
++      alarmManager.cancel(NotificationsService.createLegacyNotificationTrigger(context, it))
+     }
+   }
+ 
+   private fun setupAlarm(triggerAtMillis: Long, operation: PendingIntent) {
+-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
+-      AlarmManagerCompat.setExactAndAllowWhileIdle(
+-        alarmManager,
+-        AlarmManager.RTC_WAKEUP,
+-        triggerAtMillis,
+-        operation
+-      )
+-    } else {
+-      AlarmManagerCompat.setAndAllowWhileIdle(
+-        alarmManager,
+-        AlarmManager.RTC_WAKEUP,
+-        triggerAtMillis,
+-        operation
+-      )
++    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
++      throw SecurityException("Exact alarms are not available for this application")
+     }
++
++    alarmManager.setExactAndAllowWhileIdle(
++      AlarmManager.RTC_WAKEUP,
++      triggerAtMillis,
++      operation
++    )
+   }
+ }
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/SharedPreferencesNotificationsStore.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/SharedPreferencesNotificationsStore.kt
+index 9820571..0008fb0 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/SharedPreferencesNotificationsStore.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/SharedPreferencesNotificationsStore.kt
+@@ -74,7 +74,7 @@ class SharedPreferencesNotificationsStore(context: Context) {
+         preferencesNotificationRequestKey(notificationRequest.identifier),
+         notificationRequest.encodedInBase64()
+       )
+-      .apply()
++      .commit()
+ 
+   /**
+    * Removes notification info for given identifier.
+@@ -82,7 +82,7 @@ class SharedPreferencesNotificationsStore(context: Context) {
+    * @param identifier Notification identifier
+    */
+   fun removeNotificationRequest(identifier: String) =
+-    removeNotificationRequest(sharedPreferences.edit(), identifier).apply()
++    removeNotificationRequest(sharedPreferences.edit(), identifier).commit()
+ 
+   /**
+    * Perform notification removal on provided [SharedPreferences.Editor] instance. Can be reused
+@@ -105,7 +105,7 @@ class SharedPreferencesNotificationsStore(context: Context) {
+         removeNotificationRequest(this, it.identifier)
+         it.identifier
+       }.let {
+-        this.apply()
++        this.commit()
+         it
+       }
+     }

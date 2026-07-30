@@ -1,4 +1,20 @@
 {
-    "java.compile.nullAnalysis.mode": "automatic",
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "gradle.autoDetect": "off",
+    "gradle.nestedProjects": false,
+    "java.compile.nullAnalysis.mode": "disabled",
+    "java.configuration.updateBuildConfiguration": "disabled",
+    "java.gradle.buildServer.enabled": "off",
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/android/**",
+        "**/.expo/**"
+    ],
+    "java.import.gradle.enabled": false,
+    "java.project.importOnFirstTimeStartup": "disabled",
+    "java.project.resourceFilters": [
+        "node_modules",
+        "\\.git",
+        "android",
+        "\\.expo"
+    ]
 }

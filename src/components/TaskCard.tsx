@@ -2,7 +2,12 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, serifFont } from '../theme';
-import { formatTaskDate, isOverdue, recurrenceLabel } from '../taskUtils';
+import {
+  formatTaskDate,
+  isOverdue,
+  recurrenceScheduleLabel,
+  reminderLeadLabel,
+} from '../taskUtils';
 import { Task } from '../types';
 
 const parchmentTexture = require('../../assets/parchment-card.png');
@@ -74,7 +79,7 @@ export function TaskCard({
             >
               {task.title}
             </Text>
-            {(task.dueAt || task.notes || task.recurrence !== 'none') && (
+            {(task.dueAt || task.notes || task.recurrence !== 'none' || task.reminderEnabled) && (
               <View style={styles.metadata}>
                 {task.dueAt && (
                   <View style={styles.metaItem}>
@@ -91,7 +96,21 @@ export function TaskCard({
                 {task.recurrence !== 'none' && (
                   <View style={styles.metaItem}>
                     <MaterialCommunityIcons color="#714A31" name="repeat" size={13} />
-                    <Text style={styles.metaText}>{recurrenceLabel(task.recurrence)}</Text>
+                    <Text style={styles.metaText}>{recurrenceScheduleLabel(task)}</Text>
+                  </View>
+                )}
+                {task.reminderEnabled && (
+                  <View style={styles.metaItem}>
+                    <MaterialCommunityIcons color="#714A31" name="bell-outline" size={13} />
+                    <Text style={styles.metaText}>
+                      {reminderLeadLabel(task.reminderLeadMinutes)}
+                    </Text>
+                  </View>
+                )}
+                {!task.reminderEnabled && task.dueAt && (
+                  <View style={styles.metaItem}>
+                    <MaterialCommunityIcons color={colors.crimson} name="bell-off-outline" size={13} />
+                    <Text style={[styles.metaText, styles.metaTextOverdue]}>Sin aviso</Text>
                   </View>
                 )}
                 {task.notes && (

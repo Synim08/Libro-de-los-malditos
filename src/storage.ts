@@ -17,6 +17,18 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isRecurrence = (value: unknown): value is Recurrence =>
   value === 'none' || value === 'daily' || value === 'weekly' || value === 'monthly';
 
+const boundedInteger = (
+  value: unknown,
+  minimum: number,
+  maximum: number,
+) =>
+  typeof value === 'number' &&
+  Number.isInteger(value) &&
+  value >= minimum &&
+  value <= maximum
+    ? value
+    : undefined;
+
 const normalizeTask = (value: unknown): Task | null => {
   if (!isObject(value)) {
     return null;
@@ -32,6 +44,20 @@ const normalizeTask = (value: unknown): Task | null => {
     return null;
   }
 
+  const dueAt = typeof value.dueAt === 'number' ? value.dueAt : undefined;
+  const recurrence = isRecurrence(value.recurrence) ? value.recurrence : 'none';
+  const maximumReminderLead =
+    recurrence === 'daily' ? 720 : recurrence === 'weekly' ? 4_320 : 10_080;
+  const reminderLeadMinutes = Math.min(
+    boundedInteger(value.reminderLeadMinutes, 0, 10_080) ?? 0,
+    maximumReminderLead,
+  );
+  const reminderConfigured = value.reminderConfigured === true;
+  const reminderEnabled = reminderConfigured
+    ? value.reminderEnabled === true
+    : value.reminderEnabled === true ||
+      (recurrence !== 'none' && dueAt !== undefined);
+
   return {
     id: value.id,
     title: value.title.trim().slice(0, 90),
@@ -40,11 +66,28 @@ const normalizeTask = (value: unknown): Task | null => {
     cursed: value.cursed,
     createdAt: value.createdAt,
     completedAt: typeof value.completedAt === 'number' ? value.completedAt : undefined,
-    dueAt: typeof value.dueAt === 'number' ? value.dueAt : undefined,
-    reminderEnabled: value.reminderEnabled === true,
+    dueAt,
+    reminderEnabled,
+    reminderConfigured: true,
+    reminderLeadMinutes,
+    notificationIds: Array.isArray(value.notificationIds)
+      ? value.notificationIds.filter(
+          (identifier): identifier is string => typeof identifier === 'string',
+        )
+      : undefined,
     notificationId:
       typeof value.notificationId === 'string' ? value.notificationId : undefined,
-    recurrence: isRecurrence(value.recurrence) ? value.recurrence : 'none',
+    recurrence,
+    recurrenceWeekday:
+      boundedInteger(value.recurrenceWeekday, 0, 6) ??
+      (recurrence === 'weekly' && dueAt !== undefined
+        ? new Date(dueAt).getDay()
+        : undefined),
+    recurrenceDayOfMonth:
+      boundedInteger(value.recurrenceDayOfMonth, 1, 31) ??
+      (recurrence === 'monthly' && dueAt !== undefined
+        ? new Date(dueAt).getDate()
+        : undefined),
   };
 };
 

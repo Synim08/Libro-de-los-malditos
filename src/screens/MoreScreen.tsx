@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,13 @@ import {
 } from 'react-native';
 
 import { OrnatePanel } from '../components/OrnatePanel';
+import {
+  getNotificationDiagnostics,
+  NotificationDiagnostics,
+  openBatteryOptimizationSettings,
+  openNotificationSettings,
+  scheduleTestNotification,
+} from '../notifications';
 import { colors, serifFont, titleFont } from '../theme';
 
 type MoreScreenProps = {
@@ -21,6 +28,7 @@ type MoreScreenProps = {
   onClearCompleted: () => void;
   onExport: () => Promise<void>;
   onImport: () => Promise<number | null>;
+  onRepairNotifications: () => Promise<number>;
   totalCount: number;
 };
 
@@ -31,9 +39,26 @@ export function MoreScreen({
   onClearCompleted,
   onExport,
   onImport,
+  onRepairNotifications,
   totalCount,
 }: MoreScreenProps) {
-  const [busyAction, setBusyAction] = useState<'export' | 'import' | null>(null);
+  const [busyAction, setBusyAction] = useState<
+    'export' | 'import' | 'repair' | 'test' | null
+  >(null);
+  const [notificationStatus, setNotificationStatus] =
+    useState<NotificationDiagnostics | null>(null);
+
+  const refreshNotificationStatus = async () => {
+    try {
+      setNotificationStatus(await getNotificationDiagnostics());
+    } catch {
+      setNotificationStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    refreshNotificationStatus();
+  }, []);
 
   const confirmClearCompleted = () => {
     Alert.alert('Romper los sellos', 'Se eliminarán todos los juramentos cumplidos.', [
@@ -96,6 +121,62 @@ export function MoreScreen({
     );
   };
 
+  const runNotificationTest = async () => {
+    setBusyAction('test');
+    try {
+      await scheduleTestNotification();
+      await refreshNotificationStatus();
+      Alert.alert(
+        'Prueba programada',
+        'Deberías recibir una notificación dentro de 10 segundos. Puedes bloquear el teléfono o cerrar la aplicación.',
+      );
+    } catch (error) {
+      Alert.alert(
+        'Notificaciones bloqueadas',
+        error instanceof Error ? error.message : 'Android rechazó la prueba.',
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const repairNotifications = async () => {
+    setBusyAction('repair');
+    try {
+      const count = await onRepairNotifications();
+      await refreshNotificationStatus();
+      Alert.alert(
+        'Campanas restauradas',
+        `Android confirmó ${count} aviso${count === 1 ? '' : 's'} programado${count === 1 ? '' : 's'}.`,
+      );
+    } catch (error) {
+      Alert.alert(
+        'No se pudieron restaurar',
+        error instanceof Error ? error.message : 'Revisa los permisos de Android.',
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const openSystemSettings = async (batterySettings: boolean) => {
+    try {
+      if (batterySettings) {
+        await openBatteryOptimizationSettings();
+      } else {
+        await openNotificationSettings();
+      }
+      try {
+        await onRepairNotifications();
+      } catch {
+        // El resumen mostrará si Android todavía mantiene el permiso bloqueado.
+      }
+      await refreshNotificationStatus();
+    } catch {
+      Alert.alert('No se pudieron abrir los ajustes', 'Ábrelos manualmente desde Android.');
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <Text style={styles.kicker}>OPCIONES DEL GRIMORIO</Text>
@@ -110,6 +191,48 @@ export function MoreScreen({
             </Text>
           </View>
         </View>
+      </OrnatePanel>
+
+      <Text style={styles.groupTitle}>Campanas y recordatorios</Text>
+      <OrnatePanel style={styles.actionsPanel}>
+        <View style={styles.notificationSummary}>
+          <MaterialCommunityIcons
+            color={notificationStatus?.permissionGranted ? colors.bronzeLight : colors.crimsonLight}
+            name={notificationStatus?.permissionGranted ? 'bell-check-outline' : 'bell-alert-outline'}
+            size={23}
+          />
+          <Text style={styles.notificationSummaryText}>
+            {notificationStatus
+              ? `${notificationStatus.permissionGranted && notificationStatus.channelEnabled ? 'Permiso activo' : 'Permiso bloqueado'} · ${notificationStatus.scheduledCount} avisos en Android`
+              : 'Comprobando el estado de Android…'}
+          </Text>
+        </View>
+        <ActionRow
+          icon="bell-ring-outline"
+          label="Enviar aviso de prueba"
+          loading={busyAction === 'test'}
+          onPress={runNotificationTest}
+          subtitle="Programa una campana para dentro de 10 segundos"
+        />
+        <ActionRow
+          icon="battery-clock-outline"
+          label="Permitir actividad en segundo plano"
+          onPress={() => openSystemSettings(true)}
+          subtitle="En HiOS, abre Libro de los Malditos y selecciona Sin restricciones"
+        />
+        <ActionRow
+          icon="bell-cog-outline"
+          label="Ajustes de notificaciones"
+          onPress={() => openSystemSettings(false)}
+          subtitle="Comprueba que el canal Recordatorios esté activado"
+        />
+        <ActionRow
+          icon="calendar-refresh-outline"
+          label="Reprogramar recordatorios"
+          loading={busyAction === 'repair'}
+          onPress={repairNotifications}
+          subtitle="Vuelve a registrar todos los avisos guardados"
+        />
       </OrnatePanel>
 
       <Text style={styles.groupTitle}>Custodia del grimorio</Text>
@@ -156,7 +279,7 @@ export function MoreScreen({
         <Text style={styles.aboutCopy}>
           Una lista de tareas de fantasía oscura creada con React Native y Expo.
         </Text>
-        <Text style={styles.version}>VERSIÓN 1.1.0 · EXPO SDK 54</Text>
+        <Text style={styles.version}>VERSIÓN 1.1.4 · EXPO SDK 54</Text>
       </OrnatePanel>
     </ScrollView>
   );
@@ -222,6 +345,8 @@ const styles = StyleSheet.create({
   sectionDescription: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   groupTitle: { color: colors.ivory, fontFamily: titleFont, fontSize: 17, fontWeight: '600', marginTop: 16, marginBottom: 8 },
   actionsPanel: { overflow: 'hidden', paddingHorizontal: 10 },
+  notificationSummary: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.bronzeDark },
+  notificationSummaryText: { flex: 1, color: colors.muted, fontSize: 11, lineHeight: 16 },
   actionRow: { minHeight: 69, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, marginVertical: 2 },
   actionDisabled: { opacity: 0.43 },
   actionPressed: { opacity: 0.62 },

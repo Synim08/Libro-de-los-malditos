@@ -1,5 +1,17 @@
 import { Recurrence, Task } from './types';
 
+const MINUTE_MS = 60_000;
+
+export const weekdayNames = [
+  'Domingo',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+];
+
 export const startOfDay = (timestamp: number) => {
   const date = new Date(timestamp);
   date.setHours(0, 0, 0, 0);
@@ -47,35 +59,121 @@ export const recurrenceLabel = (recurrence: Recurrence) => {
   }
 };
 
-export const advanceRecurringDate = (
-  dueAt: number | undefined,
+const validWeekday = (value: number | undefined, fallback: number) =>
+  Number.isInteger(value) && value !== undefined && value >= 0 && value <= 6
+    ? value
+    : fallback;
+
+const validDayOfMonth = (value: number | undefined, fallback: number) =>
+  Number.isInteger(value) && value !== undefined && value >= 1 && value <= 31
+    ? value
+    : fallback;
+
+const daysInMonth = (year: number, month: number) =>
+  new Date(year, month + 1, 0).getDate();
+
+export const nextOccurrenceForSchedule = (
   recurrence: Recurrence,
+  timeAt: number | undefined,
+  recurrenceWeekday?: number,
+  recurrenceDayOfMonth?: number,
+  after = Date.now(),
 ) => {
   if (recurrence === 'none') {
-    return dueAt;
+    return timeAt;
   }
 
-  const next = new Date(dueAt ?? Date.now());
-  const preferredDay = next.getDate();
+  const time = new Date(timeAt ?? after);
+  const hour = time.getHours();
+  const minute = time.getMinutes();
+  const next = new Date(after);
+  next.setSeconds(0, 0);
 
-  do {
-    if (recurrence === 'daily') {
+  if (recurrence === 'daily') {
+    next.setHours(hour, minute, 0, 0);
+    if (next.getTime() <= after) {
       next.setDate(next.getDate() + 1);
-    } else if (recurrence === 'weekly') {
-      next.setDate(next.getDate() + 7);
-    } else {
-      next.setDate(1);
-      next.setMonth(next.getMonth() + 1);
-      const lastDayOfMonth = new Date(
-        next.getFullYear(),
-        next.getMonth() + 1,
-        0,
-      ).getDate();
-      next.setDate(Math.min(preferredDay, lastDayOfMonth));
     }
-  } while (next.getTime() <= Date.now());
+    return next.getTime();
+  }
+
+  if (recurrence === 'weekly') {
+    const weekday = validWeekday(recurrenceWeekday, time.getDay());
+    next.setHours(hour, minute, 0, 0);
+    next.setDate(next.getDate() + ((weekday - next.getDay() + 7) % 7));
+    if (next.getTime() <= after) {
+      next.setDate(next.getDate() + 7);
+    }
+    return next.getTime();
+  }
+
+  const dayOfMonth = validDayOfMonth(
+    recurrenceDayOfMonth,
+    time.getDate(),
+  );
+  next.setDate(1);
+  next.setHours(hour, minute, 0, 0);
+  next.setDate(
+    Math.min(dayOfMonth, daysInMonth(next.getFullYear(), next.getMonth())),
+  );
+
+  if (next.getTime() <= after) {
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    next.setDate(
+      Math.min(dayOfMonth, daysInMonth(next.getFullYear(), next.getMonth())),
+    );
+  }
 
   return next.getTime();
+};
+
+export const advanceRecurringDate = (task: Task) => {
+  const cutoff = Math.max(
+    task.dueAt ?? 0,
+    Date.now() + task.reminderLeadMinutes * MINUTE_MS,
+  );
+
+  return nextOccurrenceForSchedule(
+    task.recurrence,
+    task.dueAt,
+    task.recurrenceWeekday,
+    task.recurrenceDayOfMonth,
+    cutoff,
+  );
+};
+
+export const reminderLeadLabel = (minutes: number) => {
+  if (minutes <= 0) {
+    return 'A la hora';
+  }
+  if (minutes < 60) {
+    return `${minutes} min antes`;
+  }
+  if (minutes < 1_440) {
+    const hours = minutes / 60;
+    return `${hours} h antes`;
+  }
+  const days = minutes / 1_440;
+  return `${days} ${days === 1 ? 'día' : 'días'} antes`;
+};
+
+export const recurrenceScheduleLabel = (task: Task) => {
+  if (task.recurrence === 'weekly') {
+    const weekday = validWeekday(
+      task.recurrenceWeekday,
+      new Date(task.dueAt ?? Date.now()).getDay(),
+    );
+    return `Cada ${weekdayNames[weekday].toLocaleLowerCase('es')}`;
+  }
+  if (task.recurrence === 'monthly') {
+    const day = validDayOfMonth(
+      task.recurrenceDayOfMonth,
+      new Date(task.dueAt ?? Date.now()).getDate(),
+    );
+    return `Cada mes · día ${day}`;
+  }
+  return recurrenceLabel(task.recurrence);
 };
 
 export const normalizeSearchText = (value: string) =>

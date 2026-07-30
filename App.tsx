@@ -29,9 +29,9 @@ import { BottomNavigation } from './src/components/BottomNavigation';
 import {
   cancelAllTaskNotifications,
   cancelTaskNotification,
-  prepareNotifications,
   replaceTaskNotification,
   scheduleTaskNotification,
+  synchronizeTaskNotifications,
 } from './src/notifications';
 import { CodexScreen } from './src/screens/CodexScreen';
 import { MoreScreen } from './src/screens/MoreScreen';
@@ -84,14 +84,26 @@ function AppContent() {
   useEffect(() => {
     let mounted = true;
 
-    loadAppData().then((storedData) => {
+    loadAppData().then(async (storedData) => {
+      let restoredTasks = storedData.tasks;
+
+      try {
+        restoredTasks = await synchronizeTaskNotifications(storedData.tasks);
+      } catch (error) {
+        Alert.alert(
+          'Recordatorios bloqueados',
+          error instanceof Error
+            ? error.message
+            : 'Android no permitió reprogramar los avisos.',
+        );
+      }
+
       if (mounted) {
-        setTasks(storedData.tasks);
+        setTasks(restoredTasks);
         setCompletionHistory(storedData.completionHistory);
         setHydrated(true);
       }
     });
-    prepareNotifications().catch(() => undefined);
 
     return () => {
       mounted = false;
@@ -130,7 +142,11 @@ function AppContent() {
     createdAt: Date.now(),
     dueAt: draft.dueAt,
     reminderEnabled: draft.reminderEnabled,
+    reminderConfigured: true,
+    reminderLeadMinutes: draft.reminderLeadMinutes,
     recurrence: draft.recurrence,
+    recurrenceWeekday: draft.recurrenceWeekday,
+    recurrenceDayOfMonth: draft.recurrenceDayOfMonth,
   });
 
   const addTask = (title: string, cursed: boolean) => {
@@ -139,6 +155,7 @@ function AppContent() {
       notes: '',
       cursed,
       reminderEnabled: false,
+      reminderLeadMinutes: 15,
       recurrence: 'none',
     });
     setTasks((currentTasks) => [task, ...currentTasks]);
@@ -146,8 +163,8 @@ function AppContent() {
 
   const addDetailedTask = async (draft: TaskDraft) => {
     const task = createBaseTask(draft);
-    const notificationId = await scheduleTaskNotification(task);
-    setTasks((currentTasks) => [{ ...task, notificationId }, ...currentTasks]);
+    const notificationIds = await scheduleTaskNotification(task);
+    setTasks((currentTasks) => [{ ...task, notificationIds }, ...currentTasks]);
   };
 
   const editTask = async (id: string, draft: TaskDraft) => {
@@ -160,13 +177,15 @@ function AppContent() {
     const next: Task = {
       ...previous,
       ...draft,
+      reminderConfigured: true,
       notificationId: undefined,
+      notificationIds: undefined,
     };
-    const notificationId = await replaceTaskNotification(previous, next);
+    const notificationIds = await replaceTaskNotification(previous, next);
 
     setTasks((currentTasks) =>
       currentTasks.map((task) =>
-        task.id === id ? { ...next, notificationId } : task,
+        task.id === id ? { ...next, notificationIds } : task,
       ),
     );
   };
@@ -217,14 +236,14 @@ function AppContent() {
           ...task,
           completed: false,
           completedAt: undefined,
-          dueAt: advanceRecurringDate(task.dueAt, task.recurrence),
+          dueAt: advanceRecurringDate(task),
           notificationId: undefined,
+          notificationIds: undefined,
         };
 
         try {
-          nextTask.notificationId = await scheduleTaskNotification(nextTask);
+          nextTask.notificationIds = await scheduleTaskNotification(nextTask);
         } catch {
-          nextTask.reminderEnabled = false;
           Alert.alert(
             'Ritual renovado',
             'Se creó la siguiente fecha, pero Android no permitió programar el aviso.',
@@ -247,6 +266,7 @@ function AppContent() {
                 completed: true,
                 completedAt,
                 notificationId: undefined,
+                notificationIds: undefined,
               }
             : candidate,
         ),
@@ -259,14 +279,13 @@ function AppContent() {
       completed: false,
       completedAt: undefined,
       notificationId: undefined,
+      notificationIds: undefined,
     };
     removeLatestCompletion(id);
 
     try {
-      reopened.notificationId = await scheduleTaskNotification(reopened);
-    } catch {
-      reopened.reminderEnabled = false;
-    }
+      reopened.notificationIds = await scheduleTaskNotification(reopened);
+    } catch {}
 
     setTasks((currentTasks) =>
       currentTasks.map((candidate) => (candidate.id === id ? reopened : candidate)),
@@ -312,12 +331,14 @@ function AppContent() {
       deletionTimer.current = null;
     }
 
-    const restored: Task = { ...pendingDeletion.task, notificationId: undefined };
+    const restored: Task = {
+      ...pendingDeletion.task,
+      notificationId: undefined,
+      notificationIds: undefined,
+    };
     try {
-      restored.notificationId = await scheduleTaskNotification(restored);
-    } catch {
-      restored.reminderEnabled = false;
-    }
+      restored.notificationIds = await scheduleTaskNotification(restored);
+    } catch {}
 
     setTasks((currentTasks) => {
       const next = [...currentTasks];
@@ -341,6 +362,15 @@ function AppContent() {
   const handleExport = () =>
     exportBackup({ version: 2, tasks, completionHistory });
 
+  const repairNotifications = async () => {
+    const repairedTasks = await synchronizeTaskNotifications(tasks);
+    setTasks(repairedTasks);
+    return repairedTasks.reduce(
+      (count, task) => count + (task.notificationIds?.length ?? 0),
+      0,
+    );
+  };
+
   const handleImport = async () => {
     const imported = await pickBackup();
 
@@ -352,11 +382,15 @@ function AppContent() {
     const restoredTasks: Task[] = [];
 
     for (const task of imported.tasks) {
-      const restored: Task = { ...task, notificationId: undefined };
+      const restored: Task = {
+        ...task,
+        notificationId: undefined,
+        notificationIds: undefined,
+      };
       try {
-        restored.notificationId = await scheduleTaskNotification(restored);
+        restored.notificationIds = await scheduleTaskNotification(restored);
       } catch {
-        restored.reminderEnabled = false;
+        // Se conserva la preferencia para poder repararla desde la pestaña Más.
       }
       restoredTasks.push(restored);
     }
@@ -394,6 +428,7 @@ function AppContent() {
             onClearCompleted={clearCompleted}
             onExport={handleExport}
             onImport={handleImport}
+            onRepairNotifications={repairNotifications}
             totalCount={tasks.length}
           />
         );

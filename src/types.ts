@@ -12,8 +12,14 @@ export type Task = {
   completedAt?: number;
   dueAt?: number;
   reminderEnabled: boolean;
+  reminderConfigured: boolean;
+  reminderLeadMinutes: number;
+  notificationIds?: string[];
+  /** Identificador usado por las versiones anteriores a 1.1.2. */
   notificationId?: string;
   recurrence: Recurrence;
+  recurrenceWeekday?: number;
+  recurrenceDayOfMonth?: number;
 };
 
 export type TaskDraft = {
@@ -22,7 +28,10 @@ export type TaskDraft = {
   cursed: boolean;
   dueAt?: number;
   reminderEnabled: boolean;
+  reminderLeadMinutes: number;
   recurrence: Recurrence;
+  recurrenceWeekday?: number;
+  recurrenceDayOfMonth?: number;
 };
 
 export type CompletionRecord = {
