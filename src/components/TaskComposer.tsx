@@ -5,6 +5,7 @@ import {
   ImageBackground,
   Pressable,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from 'react-native';
@@ -16,11 +17,13 @@ const parchmentTexture = require('../../assets/parchment-card.png');
 type TaskComposerProps = {
   defaultCursed?: boolean;
   onAdd: (title: string, cursed: boolean) => void;
+  onOpenDetails: (initialTitle: string, cursed: boolean) => void;
 };
 
 export function TaskComposer({
   defaultCursed = false,
   onAdd,
+  onOpenDetails,
 }: TaskComposerProps) {
   const [value, setValue] = useState('');
 
@@ -37,8 +40,14 @@ export function TaskComposer({
 
   const isDisabled = !value.trim();
 
+  const openDetails = () => {
+    onOpenDetails(value.trim(), defaultCursed);
+    setValue('');
+  };
+
   return (
-    <View style={styles.frame}>
+    <View>
+      <View style={styles.frame}>
       <ImageBackground
         imageStyle={styles.parchmentImage}
         resizeMode="cover"
@@ -92,6 +101,16 @@ export function TaskComposer({
             size={defaultCursed ? 25 : 31}
           />
         </LinearGradient>
+      </Pressable>
+      </View>
+      <Pressable
+        accessibilityLabel="Añadir juramento con detalles"
+        accessibilityRole="button"
+        onPress={openDetails}
+        style={({ pressed }) => [styles.detailsButton, pressed && styles.detailsButtonPressed]}
+      >
+        <MaterialCommunityIcons color={colors.bronzeLight} name="book-edit-outline" size={16} />
+        <Text style={styles.detailsText}>AÑADIR CON FECHA Y DETALLES</Text>
       </Pressable>
     </View>
   );
@@ -154,5 +173,21 @@ const styles = StyleSheet.create({
   },
   addButtonPressed: {
     transform: [{ scale: 0.95 }],
+  },
+  detailsButton: {
+    minHeight: 35,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  detailsButtonPressed: {
+    opacity: 0.6,
+  },
+  detailsText: {
+    color: colors.bronzeLight,
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 1.1,
   },
 });

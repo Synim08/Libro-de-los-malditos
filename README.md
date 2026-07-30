@@ -8,6 +8,11 @@ Aplicación móvil de tareas con una estética original de fantasía oscura, des
 - Marcar tareas prioritarias como maldiciones.
 - Consultar progreso, estadísticas e historial en el Códice.
 - Guardar los datos localmente en el dispositivo.
+- Editar juramentos y añadir notas, fechas y recordatorios locales.
+- Buscar, filtrar y ordenar páginas del grimorio.
+- Crear rituales diarios, semanales o mensuales.
+- Deshacer eliminaciones y conservar un historial de actividad.
+- Exportar e importar copias de seguridad en formato JSON.
 - Interfaz inspirada en un grimorio con cuero, pergamino y tipografía Cinzel.
 
 ## Ejecutar el proyecto

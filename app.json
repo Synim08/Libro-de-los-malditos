@@ -2,7 +2,7 @@
   "expo": {
     "name": "Libro de los Malditos",
     "slug": "lista-tareas-ds",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "newArchEnabled": true,
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.synim08.librodelosmalditos",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#0B0807",
         "foregroundImage": "./assets/app-icon.png"
@@ -29,7 +29,9 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      "expo-notifications"
     ],
     "extra": {
       "eas": {

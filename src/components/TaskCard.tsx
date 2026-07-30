@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, serifFont } from '../theme';
+import { formatTaskDate, isOverdue, recurrenceLabel } from '../taskUtils';
 import { Task } from '../types';
 
 const parchmentTexture = require('../../assets/parchment-card.png');
@@ -9,6 +10,7 @@ const parchmentTexture = require('../../assets/parchment-card.png');
 type TaskCardProps = {
   index: number;
   onDelete: (id: string) => void;
+  onEdit: (task: Task) => void;
   onToggle: (id: string) => void;
   onToggleCursed: (id: string) => void;
   task: Task;
@@ -17,10 +19,13 @@ type TaskCardProps = {
 export function TaskCard({
   index,
   onDelete,
+  onEdit,
   onToggle,
   onToggleCursed,
   task,
 }: TaskCardProps) {
+  const overdue = isOverdue(task);
+
   return (
     <View style={[styles.frame, task.cursed && styles.frameCursed]}>
       <ImageBackground
@@ -69,10 +74,44 @@ export function TaskCard({
             >
               {task.title}
             </Text>
+            {(task.dueAt || task.notes || task.recurrence !== 'none') && (
+              <View style={styles.metadata}>
+                {task.dueAt && (
+                  <View style={styles.metaItem}>
+                    <MaterialCommunityIcons
+                      color={overdue ? colors.crimson : '#714A31'}
+                      name={overdue ? 'clock-alert-outline' : 'clock-outline'}
+                      size={13}
+                    />
+                    <Text style={[styles.metaText, overdue && styles.metaTextOverdue]}>
+                      {overdue ? 'Venció ' : ''}{formatTaskDate(task.dueAt)}
+                    </Text>
+                  </View>
+                )}
+                {task.recurrence !== 'none' && (
+                  <View style={styles.metaItem}>
+                    <MaterialCommunityIcons color="#714A31" name="repeat" size={13} />
+                    <Text style={styles.metaText}>{recurrenceLabel(task.recurrence)}</Text>
+                  </View>
+                )}
+                {task.notes && (
+                  <MaterialCommunityIcons color="#714A31" name="text-box-outline" size={13} />
+                )}
+              </View>
+            )}
           </View>
         </Pressable>
 
         <View style={styles.actions}>
+          <Pressable
+            accessibilityLabel={`Editar ${task.title}`}
+            accessibilityRole="button"
+            onPress={() => onEdit(task)}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+          >
+            <MaterialCommunityIcons color="#E2C398" name="pencil-outline" size={23} />
+          </Pressable>
+
           <Pressable
             accessibilityLabel={
               task.cursed
@@ -193,6 +232,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-evenly',
     paddingVertical: 7,
+  },
+  metadata: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 5,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  metaText: {
+    color: '#714A31',
+    fontSize: 8,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  metaTextOverdue: {
+    color: colors.crimson,
   },
   iconButton: {
     width: 38,
